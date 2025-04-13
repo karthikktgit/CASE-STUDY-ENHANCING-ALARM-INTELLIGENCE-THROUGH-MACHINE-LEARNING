@@ -1,121 +1,163 @@
-# ------------------ TASK 1: Load and Inspect Excel Data ------------------
-
+# ------------------ IMPORTS ------------------
 import pandas as pd
-
-# Load Excel file
-file_path = "IM009B-XLS-ENG.xlsx"
-xls = pd.ExcelFile(file_path)
-
-# List sheet names
-print("Available Sheets:", xls.sheet_names)
-
-# Load the 'Training Data 20000' sheet
-df = pd.read_excel(xls, sheet_name="Training Data 20000")
-
-# Inspect basic info
-print("\nShape of the dataset:", df.shape)
-print("\nColumn names:", df.columns.tolist())
-
-# Show first few rows
-print("\nSample data:")
-print(df.head())
-
-# Show unique values in categorical columns
-print("\nAlarm Tag Types:", df["Alarm Tag Type"].unique())
-print("Hour Groups:", df["H"].unique())
-print("Week Categories:", df["Week"].unique())
-
-# ------------------ TASK 2: Encode Categorical Features ------------------
-
-# Categorical columns to encode
-columns_to_encode = ["Alarm Tag Type", "H", "Week"]
-
-# Apply one-hot encoding using pandas
-df_encoded = pd.get_dummies(df, columns=columns_to_encode, drop_first=True)
-
-# Show shape and new columns created
-print("\nShape after encoding:", df_encoded.shape)
-print("\nNewly added encoded columns:")
-for col in df_encoded.columns.difference(df.columns):
-    print(col)
-
-# Preview encoded data
-print("\nSample of encoded dataset:")
-print(df_encoded.head())
-
-# ------------------ TASK 3: Drop Redundant Columns & Prepare Features ------------------
-
-# Drop columns we no longer need
-columns_to_drop = ['SO', 'Hour:0-6', 'Hour:7-12', 'Hour:13-18', 'Hour:19-24',
-                   '1st Week', '2nd week', '3rd week', '4th week']
-df_encoded = df_encoded.drop(columns=columns_to_drop, errors='ignore')  # ignore if missing
-
-# Define target and features
-X = df_encoded.drop(columns=['CHB'])  # Features
-y = df_encoded['CHB']                 # Target
-
-# Print results
-print("\nFinal shape of X (features):", X.shape)
-print("Shape of y (target):", y.shape)
-print("\nSample feature columns:")
-print(X.columns[:10].tolist())
-
-# ------------------ TASK 4: Train & Evaluate Models ------------------
-
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from xgboost import XGBClassifier, plot_importance
 
-# Step 1: Split the dataset into train and test sets
+# ------------------ TASK 1: Load & Inspect ------------------
+file_path = "IM009B-XLS-ENG.xlsx"
+xls = pd.ExcelFile(file_path)
+print("Available Sheets:", xls.sheet_names)
+
+df = pd.read_excel(xls, sheet_name="Training Data 20000")
+
+print("\nShape of the dataset:", df.shape)
+print("\nSample data:")
+print(df.head())
+print("\nAlarm Tag Types:", df["Alarm Tag Type"].unique())
+print("Hour Groups:", df["H"].unique())
+print("Week Categories:", df["Week"].unique())
+
+# ------------------ TASK 2: Encode Categorical ------------------
+columns_to_encode = ["Alarm Tag Type", "H", "Week"]
+df_encoded = pd.get_dummies(df, columns=columns_to_encode, drop_first=True)
+
+# ------------------ TASK 3: Drop Redundant Columns ------------------
+columns_to_drop = ['SO', 'Hour:0-6', 'Hour:7-12', 'Hour:13-18', 'Hour:19-24',
+                   '1st Week', '2nd week', '3rd week', '4th week']
+df_encoded = df_encoded.drop(columns=columns_to_drop, errors='ignore')
+
+# ------------------ TASK 4: Feature Scaling ------------------
+num_cols = ['ATD', 'M', 'Flow', 'Level', 'Pressure', 'Temperature', 'Others']
+X = df_encoded.drop(columns=['CHB'])
+y = df_encoded['CHB']
+
+scaler = StandardScaler()
+X[num_cols] = scaler.fit_transform(X[num_cols])
+
+# ------------------ TASK 5: Train/Test Models ------------------
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Step 2: Train Logistic Regression
+# Logistic Regression
 lr_model = LogisticRegression(max_iter=1000)
 lr_model.fit(X_train, y_train)
 y_pred_lr = lr_model.predict(X_test)
 
-# Step 3: Train Random Forest
+# Random Forest
 rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
 rf_model.fit(X_train, y_train)
 y_pred_rf = rf_model.predict(X_test)
 
-# Step 4: Evaluate both models
+# XGBoost
+xgb_model = XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42)
+xgb_model.fit(X_train, y_train)
+y_pred_xgb = xgb_model.predict(X_test)
+
+# ------------------ MODEL EVALUATION ------------------
 print("\n--- Logistic Regression ---")
 print("Accuracy:", accuracy_score(y_test, y_pred_lr))
-print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred_lr))
-print("Classification Report:\n", classification_report(y_test, y_pred_lr))
+print(confusion_matrix(y_test, y_pred_lr))
+print(classification_report(y_test, y_pred_lr))
 
 print("\n--- Random Forest ---")
 print("Accuracy:", accuracy_score(y_test, y_pred_rf))
-print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred_rf))
-print("Classification Report:\n", classification_report(y_test, y_pred_rf))
+print(confusion_matrix(y_test, y_pred_rf))
+print(classification_report(y_test, y_pred_rf))
 
-# ------------------ TASK 5: Plot Feature Importance ------------------
+print("\n--- XGBoost ---")
+print("Accuracy:", accuracy_score(y_test, y_pred_xgb))
+print(confusion_matrix(y_test, y_pred_xgb))
+print(classification_report(y_test, y_pred_xgb))
 
-import matplotlib.pyplot as plt
+# ------------------ 📊 FEATURE IMPORTANCE ------------------
 
-# Get feature importances from the Random Forest model
-importances = rf_model.feature_importances_
-feature_names = X.columns
+# Logistic Regression
+lr_coeff_df = pd.DataFrame({
+    'Feature': X.columns,
+    'Coefficient': lr_model.coef_[0]
+}).nlargest(10, 'Coefficient', 'all')
 
-# Create a DataFrame for sorting and visualization
-feature_df = pd.DataFrame({
-    'Feature': feature_names,
-    'Importance': importances
-}).sort_values(by='Importance', ascending=False)
-
-# Plot top 10 features
 plt.figure(figsize=(10, 6))
-plt.barh(feature_df['Feature'][:10][::-1], feature_df['Importance'][:10][::-1])
-plt.xlabel("Feature Importance")
-plt.title("Top 10 Important Features (Random Forest)")
+plt.barh(lr_coeff_df['Feature'][::-1], lr_coeff_df['Coefficient'][::-1])
+plt.xlabel("Coefficient Value")
+plt.title("🔍 Top 10 Features - Logistic Regression")
 plt.tight_layout()
+plt.savefig("logistic_regression_importance.png")
 plt.show()
+plt.close()
 
-# ------------------ Optional: Save Goal 1 Dataset ------------------
+# Random Forest
+rf_importance_df = pd.DataFrame({
+    'Feature': X.columns,
+    'Importance': rf_model.feature_importances_
+}).nlargest(10, 'Importance', 'all')
 
-# Save encoded data to CSV for backup, sharing, or reuse
+plt.figure(figsize=(10, 6))
+plt.barh(rf_importance_df['Feature'][::-1], rf_importance_df['Importance'][::-1])
+plt.xlabel("Importance Score")
+plt.title("🌲 Top 10 Features - Random Forest")
+plt.tight_layout()
+plt.savefig("random_forest_importance.png")
+plt.show()
+plt.close()
+
+# XGBoost
+plt.figure(figsize=(10, 6))
+plot_importance(xgb_model, max_num_features=10, importance_type='gain', height=0.5, grid=False)
+plt.title("🚀 Top 10 Features - XGBoost (Gain)")
+plt.tight_layout()
+plt.savefig("xgboost_importance.png")
+plt.show()
+plt.close()
+
+# ------------------ 📈 CHB Trend Visualizations ------------------
+
+# CHB Distribution
+sns.countplot(data=df, x='CHB')
+plt.title("CHB Distribution")
+plt.xlabel("CHB Value (0 = No Alarm, 1 = Alarm)")
+plt.ylabel("Count")
+plt.tight_layout()
+plt.savefig("chb_distribution.png")
+plt.show()
+plt.close()
+
+# CHB by Week
+sns.countplot(data=df, x='Week', hue='CHB')
+plt.title("CHB by Week")
+plt.xlabel("Week")
+plt.ylabel("Count")
+plt.tight_layout()
+plt.savefig("chb_by_week.png")
+plt.show()
+plt.close()
+
+# CHB by Hour Group
+sns.countplot(data=df, x='H', hue='CHB')
+plt.title("CHB by Hour Group")
+plt.xlabel("Hour Group")
+plt.ylabel("Count")
+plt.tight_layout()
+plt.savefig("chb_by_hour.png")
+plt.show()
+plt.close()
+
+# CHB by Alarm Tag Type
+sns.countplot(data=df, x='Alarm Tag Type', hue='CHB')
+plt.title("CHB by Alarm Tag Type")
+plt.xlabel("Alarm Tag Type")
+plt.ylabel("Count")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.savefig("chb_by_tag_type.png")
+plt.show()
+plt.close()
+
+# ------------------ Save Encoded Dataset ------------------
 df_encoded.to_csv("goal1_encoded_training_data.csv", index=False)
-
-print("✅ Encoded Goal 1 dataset saved as goal1_encoded_training_data.csv")
+print("✅ All plots generated and dataset saved.")
