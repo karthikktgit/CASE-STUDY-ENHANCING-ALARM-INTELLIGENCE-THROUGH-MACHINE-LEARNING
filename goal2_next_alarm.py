@@ -1,7 +1,10 @@
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import networkx as nx
+import plotly.graph_objects as go
 from PIL import Image
+import os
 
 # ------------------ Load and Create Transitions ------------------
 
@@ -126,3 +129,85 @@ plt.axis('off')
 plt.title("🔮 Top 20 Alarm Transitions", fontsize=14)
 plt.tight_layout()
 plt.show()
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+# Create output folder
+os.makedirs("goal2_graphs", exist_ok=True)
+
+# Load the filtered predictions
+df = pd.read_csv("goal2_predictions_filtered.csv")
+
+# ------------------ 1. Flow Arrows Plot ------------------
+plt.figure(figsize=(12, 8))
+for i, row in df.iterrows():
+    plt.arrow(
+        0, i,             # start at x=0
+        1, 0,             # draw arrow to x=1 (same row)
+        head_width=0.3,
+        head_length=0.05,
+        fc='skyblue',
+        ec='black',
+        linewidth=row["Probability"] * 5  # thicker arrow = higher probability
+    )
+    plt.text(-0.2, i, row["Current Alarm"], ha='right', va='center', fontsize=9)
+    plt.text(1.2, i, row["Most Likely Next Alarm"], ha='left', va='center', fontsize=9)
+
+plt.axis('off')
+plt.title("Flow of Alarm Predictions →", fontsize=14)
+plt.tight_layout()
+plt.savefig("goal2_graphs/flow_arrows_plot.png")
+plt.close()
+print("✅ Saved: flow_arrows_plot.png")
+
+# ------------------ 2. Sankey Diagram ------------------
+sankey = go.Figure(data=[go.Sankey(
+    node=dict(
+        pad=15,
+        thickness=20,
+        line=dict(color="black", width=0.5),
+        label=list(set(df["Current Alarm"]) | set(df["Most Likely Next Alarm"]))
+    ),
+    link=dict(
+        source=[list(set(df["Current Alarm"]) | set(df["Most Likely Next Alarm"])).index(src) for src in df["Current Alarm"]],
+        target=[list(set(df["Current Alarm"]) | set(df["Most Likely Next Alarm"])).index(tgt) for tgt in df["Most Likely Next Alarm"]],
+        value=df["Probability"]
+    )
+)])
+sankey.update_layout(title_text="Sankey Diagram - Alarm Transitions", font_size=10)
+sankey.write_image("goal2_graphs/sankey_diagram.png")
+print("✅ Saved: sankey_diagram.png")
+
+# ------------------ 3. Network Graph ------------------
+G = nx.DiGraph()
+
+for _, row in df.iterrows():
+    G.add_edge(
+        row["Current Alarm"],
+        row["Most Likely Next Alarm"],
+        weight=row["Probability"]
+    )
+
+plt.figure(figsize=(12, 10))
+pos = nx.circular_layout(G)
+edges = G.edges(data=True)
+
+nx.draw(
+    G, pos,
+    with_labels=True,
+    node_color="lightblue",
+    node_size=1000,
+    arrowsize=20,
+    edge_color=[edge[2]['weight'] for edge in edges],
+    edge_cmap=plt.cm.Blues,
+    width=[edge[2]['weight'] * 5 for edge in edges]
+)
+plt.title("Network Graph of Alarm Tag Transitions")
+plt.tight_layout()
+plt.savefig("goal2_graphs/network_graph.png")
+plt.close()
+print("✅ Saved: network_graph.png")
